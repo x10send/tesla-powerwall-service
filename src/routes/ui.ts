@@ -36,8 +36,12 @@ export async function uiRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/ui/settings', async (req, reply) => {
     const body = req.body as Record<string, string>
-    const socLow = body['socLow'] ? parseFloat(body['socLow']) : null
-    const socHigh = body['socHigh'] ? parseFloat(body['socHigh']) : null
+    const parseThreshold = (v: string | undefined): number | null => {
+      const n = parseFloat(v ?? '')
+      return isNaN(n) ? null : Math.min(100, Math.max(0, n))
+    }
+    const socLow = parseThreshold(body['socLow'])
+    const socHigh = parseThreshold(body['socHigh'])
     saveSettings({ socLow, socHigh })
     await reply.redirect('/ui')
   })

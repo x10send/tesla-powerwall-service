@@ -1,6 +1,10 @@
 import type { PowerwallState, TransitionEvent } from '../state/store.js'
 import type { Settings } from '../settings.js'
 
+function esc(s: string | null | undefined): string {
+  return (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 const CSS = `
   body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
   h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
@@ -47,11 +51,11 @@ function layout(title: string, body: string): string {
 
 export function renderSetup({ authorizeUrl, error }: { authorizeUrl: string; error?: string }): string {
   return layout('Setup', `
-    ${error ? `<div class="error-box">${error}</div>` : ''}
+    ${error ? `<div class="error-box">${esc(error)}</div>` : ''}
     <div class="card">
       <h2>Connect Tesla Account</h2>
       <ol style="line-height:2">
-        <li><a href="${authorizeUrl}" target="_blank" class="btn">Open Tesla Authorization</a></li>
+        <li><a href="${authorizeUrl}" target="_blank" rel="noopener" class="btn">Open Tesla Authorization</a></li>
         <li>Log in and approve access. You'll be redirected to a blank page.</li>
         <li>Copy the full URL from your browser and paste it below:</li>
       </ol>
@@ -90,11 +94,11 @@ export function renderDashboard({
       : '<span class="badge badge-gray">Unknown</span>'
 
   const staleBanner = appState.stale
-    ? `<div class="stale-warning">⚠ Data is stale — last updated ${appState.lastUpdated ? formatTime(appState.lastUpdated) : 'never'}. ${appState.lastError ?? ''}</div>`
+    ? `<div class="stale-warning">⚠ Data is stale — last updated ${appState.lastUpdated ? formatTime(appState.lastUpdated) : 'never'}. ${esc(appState.lastError)}</div>`
     : ''
 
   const errorBanner = appState.authState === 'error'
-    ? `<div class="error-box">Authentication error — <a href="/ui">reconnect Tesla account</a>. ${appState.lastError ?? ''}</div>`
+    ? `<div class="error-box">Authentication error — <a href="/ui">reconnect Tesla account</a>. ${esc(appState.lastError)}</div>`
     : ''
 
   const eventRows = events.length === 0
@@ -118,7 +122,7 @@ export function renderDashboard({
     <div class="card">
       <h2>Diagnostics</h2>
       <div style="font-size:0.875rem;line-height:2">
-        <div>Site: <strong>${appState.siteName ?? '—'}</strong></div>
+        <div>Site: <strong>${esc(appState.siteName) || '—'}</strong></div>
         <div>Auth state: <strong>${appState.authState}</strong></div>
         <div>Last poll: <strong>${appState.lastUpdated ? formatTime(appState.lastUpdated) : 'never'}</strong></div>
         <div>SoC thresholds: low <strong>${settings.socLow ?? 'not set'}</strong> / high <strong>${settings.socHigh ?? 'not set'}</strong></div>

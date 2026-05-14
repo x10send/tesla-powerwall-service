@@ -55,6 +55,40 @@ export async function getTariffRate(siteId: number, accessToken: string): Promis
   }
 }
 
+// Grid mode control — requires energy_cmds scope.
+// The exact islanding endpoint is not publicly documented; this uses the best known path.
+// If your developer app does not have energy_cmds scope approved, this will return a
+// CommandNotAvailableError and the bridge will return 503 to the caller.
+export async function setGridMode(siteId: number, onGrid: boolean, accessToken: string): Promise<void> {
+  const path = `/api/1/energy_sites/${siteId}/operation`
+  const body = JSON.stringify({ real_mode: onGrid ? 'backup' : 'autonomous', backup_reserve_percent: onGrid ? 0 : 100 })
+
+  const resp = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body,
+  })
+
+  if (resp.status === 401) throw new AuthError('Unauthorized — token may be revoked or expired')
+  if (resp.status === 403) throw new CommandNotAvailableError('energy_cmds scope not granted for this app')
+  if (resp.status === 404) throw new CommandNotAvailableError('Grid mode endpoint not found — may require commercial partner access')
+  if (resp.status === 429) throw new RateLimitError('Rate limited by Tesla API')
+  if (!resp.ok) {
+    const text = await resp.text()
+    throw new Error(`Grid mode command failed (${resp.status}): ${text}`)
+  }
+}
+
+export class CommandNotAvailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CommandNotAvailableError'
+  }
+}
+
 export class AuthError extends Error {
   constructor(message: string) {
     super(message)

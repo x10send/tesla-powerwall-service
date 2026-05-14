@@ -58,3 +58,7 @@ export function pushEvent(name: string): void {
 export function getEvents(): ReadonlyArray<TransitionEvent> {
   return events
 }
+
+export function clearEvents(): void {
+  events.splice(0)
+}

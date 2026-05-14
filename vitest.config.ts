@@ -5,7 +5,8 @@ export default defineConfig({
     env: {
       TESLA_CLIENT_ID: 'test-client-id',
       TESLA_CLIENT_SECRET: 'test-client-secret',
-      DATA_DIR: '/tmp/powerwall-test',
+      // DATA_DIR is set per-fork by test/setup.ts to avoid parallel file races
     },
+    setupFiles: ['./test/setup.ts'],
   },
 })
