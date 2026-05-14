@@ -1,14 +1,20 @@
 import { config } from './config.js'
 import { loadTokens, saveTokens, isExpiringSoon } from './auth/tokens.js'
 import { refreshAccessToken } from './auth/flow.js'
-import { getLiveStatus } from './tesla/client.js'
-import { AuthError, RateLimitError } from './tesla/client.js'
-import { getState, setState } from './state/store.js'
+import { getLiveStatus, getTariffRate, AuthError, RateLimitError } from './tesla/client.js'
+import { setState } from './state/store.js'
 import { detectTransitions } from './state/transitions.js'
 import { readSettings } from './settings.js'
+import { computeIsPeak } from './peak.js'
+import type { TariffRate } from './tesla/types.js'
 import type { FastifyBaseLogger } from 'fastify'
 
 let timer: ReturnType<typeof setTimeout> | null = null
+
+// Tariff is refreshed once per hour — it rarely changes
+let cachedTariff: TariffRate | null = null
+let tariffFetchedAt = 0
+const TARIFF_TTL_MS = 60 * 60 * 1000
 
 export function startPoller(log: FastifyBaseLogger): void {
   scheduleNext(log)
@@ -53,8 +59,24 @@ async function poll(log: FastifyBaseLogger): Promise<void> {
       }
     }
 
+    // Refresh tariff cache once per hour
+    if (!cachedTariff || Date.now() - tariffFetchedAt > TARIFF_TTL_MS) {
+      try {
+        cachedTariff = await getTariffRate(siteId, tokens.accessToken)
+        tariffFetchedAt = Date.now()
+        if (!cachedTariff) log.info('Tariff rate endpoint returned no data — peak detection disabled')
+      } catch (err) {
+        log.warn({ err }, 'Failed to fetch tariff rate — peak detection unavailable')
+      }
+    }
+
     const live = await getLiveStatus(siteId, tokens.accessToken)
-    detectTransitions(live)
+
+    const isPeakPeriod = cachedTariff
+      ? computeIsPeak(cachedTariff, config.tz)
+      : null
+
+    detectTransitions(live, isPeakPeriod)
 
     setState({
       authState: 'polling',
@@ -64,12 +86,13 @@ async function poll(log: FastifyBaseLogger): Promise<void> {
       homePower: live.load_power,
       soc: live.percentage_charged,
       gridStatus: live.grid_status,
+      isPeakPeriod,
       stale: false,
       lastUpdated: Date.now(),
       lastError: null,
     })
 
-    log.debug({ soc: live.percentage_charged, gridStatus: live.grid_status }, 'Poll successful')
+    log.debug({ soc: live.percentage_charged, gridStatus: live.grid_status, isPeakPeriod }, 'Poll successful')
   } catch (err) {
     if (err instanceof AuthError) {
       log.warn('Auth error during poll — switching to setup mode')

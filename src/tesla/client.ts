@@ -1,4 +1,4 @@
-import type { EnergySite, LiveStatus, SiteInfo } from './types.js'
+import type { EnergySite, LiveStatus, SiteInfo, TariffRate } from './types.js'
 
 const BASE = 'https://fleet-api.prd.na.vn.cloud.tesla.com'
 
@@ -43,6 +43,16 @@ export async function getLiveStatus(siteId: number, accessToken: string): Promis
 
 export async function getSiteInfo(siteId: number, accessToken: string): Promise<SiteInfo> {
   return get<SiteInfo>(`/api/1/energy_sites/${siteId}/site_info`, accessToken)
+}
+
+export async function getTariffRate(siteId: number, accessToken: string): Promise<TariffRate | null> {
+  try {
+    return await get<TariffRate>(`/api/1/energy_sites/${siteId}/tariff_rate`, accessToken)
+  } catch (err) {
+    // Endpoint may not exist or may not be populated for all accounts — treat as non-fatal
+    if (err instanceof Error && err.message.includes('404')) return null
+    throw err
+  }
 }
 
 export class AuthError extends Error {
