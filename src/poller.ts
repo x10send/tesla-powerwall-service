@@ -2,7 +2,7 @@ import { config } from './config.js'
 import { readSettings, saveSettings } from './settings.js'
 import { pollGateway, fetchSystemInfo, GatewayAuthError } from './gateway/client.js'
 import { setState } from './state/store.js'
-import { detectTransitions } from './state/transitions.js'
+import { detectTransitions, detectGatewayTransition } from './state/transitions.js'
 import { computeIsPeakFromSchedule } from './peak.js'
 import type { FastifyBaseLogger } from 'fastify'
 
@@ -72,6 +72,7 @@ async function poll(log: FastifyBaseLogger): Promise<void> {
       : null
 
     detectTransitions(data, isPeakPeriod)
+    detectGatewayTransition(false)
 
     setState({
       authState: 'polling',
@@ -99,6 +100,7 @@ async function poll(log: FastifyBaseLogger): Promise<void> {
 
     log.debug({ soc: data.soc, gridStatus: data.gridStatus, isPeakPeriod }, 'Poll OK')
   } catch (err) {
+    detectGatewayTransition(true)
     if (err instanceof GatewayAuthError) {
       log.warn({ err }, 'Gateway auth error — will retry')
       setState({ authState: 'error', stale: true, lastError: String(err) })

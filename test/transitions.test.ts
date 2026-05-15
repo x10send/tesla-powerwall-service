@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { detectTransitions } from '../src/state/transitions.js'
+import { detectTransitions, detectGatewayTransition } from '../src/state/transitions.js'
 import { setState, getEvents, clearEvents } from '../src/state/store.js'
 import { saveSettings } from '../src/settings.js'
 import type { GatewayData } from '../src/gateway/client.js'
@@ -228,6 +228,86 @@ describe('peak period transitions', () => {
   it('fires no event on first poll (prev isPeakPeriod null)', () => {
     setState({ isPeakPeriod: null })
     detectTransitions(baseLive, true)
+    expect(getEvents()).toHaveLength(0)
+  })
+})
+
+// ── Battery charging / discharging ────────────────────────────────────────
+
+describe('battery charging/discharging transitions', () => {
+  it('fires battery_charging when battery switches from discharging to charging', () => {
+    setState({ batteryPower: 500 })
+    detectTransitions({ ...baseLive, batteryPower: -500 }, null)
+    expect(getEvents()[0]?.name).toBe('battery_charging')
+  })
+
+  it('fires battery_discharging when battery switches from charging to discharging', () => {
+    setState({ batteryPower: -500 })
+    detectTransitions({ ...baseLive, batteryPower: 500 }, null)
+    expect(getEvents()[0]?.name).toBe('battery_discharging')
+  })
+
+  it('fires no event when both sides are within the deadband', () => {
+    setState({ batteryPower: 50 })
+    detectTransitions({ ...baseLive, batteryPower: -50 }, null)
+    expect(getEvents()).toHaveLength(0)
+  })
+
+  it('fires no event when discharging side is within the deadband', () => {
+    setState({ batteryPower: 50 })
+    detectTransitions({ ...baseLive, batteryPower: -500 }, null)
+    expect(getEvents()).toHaveLength(0)
+  })
+
+  it('fires no event when charging side is within the deadband', () => {
+    setState({ batteryPower: 500 })
+    detectTransitions({ ...baseLive, batteryPower: -50 }, null)
+    expect(getEvents()).toHaveLength(0)
+  })
+
+  it('fires no event when battery stays discharging', () => {
+    setState({ batteryPower: 500 })
+    detectTransitions({ ...baseLive, batteryPower: 300 }, null)
+    expect(getEvents()).toHaveLength(0)
+  })
+
+  it('fires no event on first poll (prev batteryPower null)', () => {
+    setState({ batteryPower: null })
+    detectTransitions({ ...baseLive, batteryPower: 500 }, null)
+    expect(getEvents()).toHaveLength(0)
+  })
+})
+
+// ── Gateway stale / recovered ──────────────────────────────────────────────
+
+describe('gateway stale/recovered transitions', () => {
+  it('fires gateway_stale when connection is lost after a successful poll', () => {
+    setState({ stale: false, lastUpdated: Date.now() })
+    detectGatewayTransition(true)
+    expect(getEvents()[0]?.name).toBe('gateway_stale')
+  })
+
+  it('fires gateway_recovered when connection is restored after being stale', () => {
+    setState({ stale: true, lastUpdated: Date.now() })
+    detectGatewayTransition(false)
+    expect(getEvents()[0]?.name).toBe('gateway_recovered')
+  })
+
+  it('fires no event when already stale and poll fails again', () => {
+    setState({ stale: true, lastUpdated: Date.now() })
+    detectGatewayTransition(true)
+    expect(getEvents()).toHaveLength(0)
+  })
+
+  it('fires no event when already not stale and poll succeeds again', () => {
+    setState({ stale: false, lastUpdated: Date.now() })
+    detectGatewayTransition(false)
+    expect(getEvents()).toHaveLength(0)
+  })
+
+  it('fires no event on first failure if never successfully polled (lastUpdated null)', () => {
+    setState({ stale: false, lastUpdated: null })
+    detectGatewayTransition(true)
     expect(getEvents()).toHaveLength(0)
   })
 })
