@@ -16,7 +16,7 @@ export async function apiRoutes(app: FastifyInstance): Promise<void> {
       await reply.code(503).send({ authState: 'setup', error: 'Gateway not configured' })
       return
     }
-    await reply.send(state)
+    await reply.send({ ...state, events: getEvents() })
   })
 
   app.get('/events', { preHandler: lanOnly }, async (_req, reply) => {
