@@ -1,21 +1,15 @@
+import 'dotenv/config'
 import { config } from './config.js'
 import { createApp } from './server.js'
-import { loadTokens } from './auth/tokens.js'
 import { readSettings } from './settings.js'
 import { setState } from './state/store.js'
 import { startPoller } from './poller.js'
 
 const app = await createApp()
 
-// Restore state from persisted settings on startup
-const tokens = await loadTokens()
 const settings = readSettings()
-if (tokens && settings.siteId) {
-  setState({
-    authState: 'polling',
-    siteId: settings.siteId,
-    siteName: settings.siteName,
-  })
+if (settings.gatewayIp && settings.gatewayPassword) {
+  setState({ authState: 'polling', siteName: settings.siteName })
 } else {
   setState({ authState: 'setup' })
 }

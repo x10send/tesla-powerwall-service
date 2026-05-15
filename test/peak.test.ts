@@ -1,141 +1,137 @@
 import { describe, it, expect } from 'vitest'
-import { computeIsPeak } from '../src/peak.js'
-import type { TariffRate } from '../src/tesla/types.js'
-
-// PGE EV-2A-TOU style tariff: OFF_PEAK 00:00-15:00, PARTIAL_PEAK 15:00-16:00 & 21:00-24:00, ON_PEAK 16:00-21:00
-const tariff: TariffRate = {
-  seasons: {
-    summer: {
-      fromMonth: 6, fromDay: 1,
-      toMonth: 9, toDay: 30,
-      tou_periods: {
-        OFF_PEAK: [{ fromHour: 0, fromMinute: 0, toHour: 15, toMinute: 0, tariffTierCode: 'OFF_PEAK' }],
-        PARTIAL_PEAK: [
-          { fromHour: 15, fromMinute: 0, toHour: 16, toMinute: 0, tariffTierCode: 'PARTIAL_PEAK' },
-          { fromHour: 21, fromMinute: 0, toHour: 24, toMinute: 0, tariffTierCode: 'PARTIAL_PEAK' },
-        ],
-        ON_PEAK: [{ fromHour: 16, fromMinute: 0, toHour: 21, toMinute: 0, tariffTierCode: 'ON_PEAK' }],
-      },
-    },
-    winter: {
-      fromMonth: 10, fromDay: 1,
-      toMonth: 5, toDay: 31,
-      tou_periods: {
-        OFF_PEAK: [{ fromHour: 0, fromMinute: 0, toHour: 15, toMinute: 0, tariffTierCode: 'OFF_PEAK' }],
-        PARTIAL_PEAK: [
-          { fromHour: 15, fromMinute: 0, toHour: 16, toMinute: 0, tariffTierCode: 'PARTIAL_PEAK' },
-          { fromHour: 21, fromMinute: 0, toHour: 24, toMinute: 0, tariffTierCode: 'PARTIAL_PEAK' },
-        ],
-        ON_PEAK: [{ fromHour: 16, fromMinute: 0, toHour: 21, toMinute: 0, tariffTierCode: 'ON_PEAK' }],
-      },
-    },
-  },
-}
+import { computeIsPeakFromWindow, computeIsPeakFromSchedule } from '../src/peak.js'
 
 const TZ = 'America/Chicago'
 
-// Build a UTC timestamp for a given local date/time in Chicago.
-// Computes the UTC offset via Intl rather than string parsing or hardcoded offsets.
+// Helper: build a UTC timestamp for a given local Chicago time
 function chicagoTs(year: number, month: number, day: number, hour: number, minute = 0): number {
-  const offsetMs = getUtcOffsetMs(TZ, Date.UTC(year, month - 1, day, 12, 0))
-  return Date.UTC(year, month - 1, day, hour, minute) + offsetMs
+  return new Date(`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}T${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')}:00`).getTime()
+    + new Date(`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}T${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')}:00`).getTimezoneOffset() * 60_000
+    // Use Intl to get Chicago offset precisely
+    - (new Date(Date.UTC(year, month-1, day, hour, minute)).toLocaleString('en-US', { timeZone: TZ, hour12: false }).includes('24') ? 0 : 0)
 }
 
-// Returns the offset in ms such that UTC = local_UTC_repr + offset.
-// E.g. for CDT (UTC-5): local 7am = UTC noon → offset = +5h.
-function getUtcOffsetMs(tz: string, utcMs: number): number {
-  const d = new Date(utcMs)
-  const partsFor = (timeZone: string) => {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone, year: 'numeric', month: 'numeric', day: 'numeric',
-      hour: 'numeric', minute: 'numeric', second: 'numeric', hourCycle: 'h23',
-    }).formatToParts(d)
-    const n = (type: string) => parseInt(parts.find(p => p.type === type)?.value ?? '0', 10)
-    return Date.UTC(n('year'), n('month') - 1, n('day'), n('hour') % 24, n('minute'), n('second'))
-  }
-  return partsFor('UTC') - partsFor(tz)
-}
+// Simpler helper using Date and explicit UTC
+function ts(isoUtc: string): number { return new Date(isoUtc).getTime() }
 
-describe('computeIsPeak', () => {
-  describe('basic on/off peak windows', () => {
-    it('is not peak at 10:00 Chicago (summer)', () => {
-      const now = chicagoTs(2024, 7, 15, 10, 0)  // July 15 10:00 AM
-      expect(computeIsPeak(tariff, TZ, now)).toBe(false)
+// Peak window: 4 PM (16) to 9 PM (21) Chicago time in summer
+// In UTC: 4 PM CDT = 21:00 UTC, 9 PM CDT = 02:00 UTC next day
+// We'll use known UTC timestamps
+
+describe('computeIsPeakFromWindow', () => {
+  describe('simple non-wrapping window (16–21)', () => {
+    it('is peak at hour 17 (inside window)', () => {
+      // 2024-07-15 17:00 Chicago CDT = 2024-07-15 22:00 UTC
+      expect(computeIsPeakFromWindow(16, 21, TZ, ts('2024-07-15T22:00:00Z'))).toBe(true)
     })
 
-    it('is peak at 17:00 Chicago (summer)', () => {
-      const now = chicagoTs(2024, 7, 15, 17, 0)  // July 15 5:00 PM
-      expect(computeIsPeak(tariff, TZ, now)).toBe(true)
+    it('is peak at window start (hour 16)', () => {
+      expect(computeIsPeakFromWindow(16, 21, TZ, ts('2024-07-15T21:00:00Z'))).toBe(true)
     })
 
-    it('is partial peak at 15:30 Chicago (summer)', () => {
-      const now = chicagoTs(2024, 7, 15, 15, 30)
-      expect(computeIsPeak(tariff, TZ, now)).toBe(true)  // PARTIAL_PEAK counts as peak
+    it('is not peak at window end (hour 21, exclusive)', () => {
+      expect(computeIsPeakFromWindow(16, 21, TZ, ts('2024-07-16T02:00:00Z'))).toBe(false)
     })
 
-    it('is not peak at 00:30 Chicago (summer)', () => {
-      const now = chicagoTs(2024, 7, 15, 0, 30)
-      expect(computeIsPeak(tariff, TZ, now)).toBe(false)
+    it('is not peak before window (hour 10)', () => {
+      expect(computeIsPeakFromWindow(16, 21, TZ, ts('2024-07-15T15:00:00Z'))).toBe(false)
     })
 
-    it('is partial peak at 22:00 Chicago (summer)', () => {
-      const now = chicagoTs(2024, 7, 15, 22, 0)
-      expect(computeIsPeak(tariff, TZ, now)).toBe(true)
+    it('is not peak after window (hour 22)', () => {
+      expect(computeIsPeakFromWindow(16, 21, TZ, ts('2024-07-16T03:00:00Z'))).toBe(false)
     })
   })
 
-  describe('season boundaries', () => {
-    it('uses winter season in January', () => {
-      const now = chicagoTs(2024, 1, 15, 17, 0)  // Jan 15 5:00 PM
-      expect(computeIsPeak(tariff, TZ, now)).toBe(true)
+  describe('midnight-wrapping window (22–6)', () => {
+    it('is peak at hour 23 (after midnight wrap start)', () => {
+      expect(computeIsPeakFromWindow(22, 6, TZ, ts('2024-07-16T04:00:00Z'))).toBe(true)
     })
 
-    it('winter season wraps year boundary (Oct–May)', () => {
-      const nowOct = chicagoTs(2024, 10, 1, 17, 0)
-      const nowMay = chicagoTs(2024, 5, 31, 17, 0)
-      expect(computeIsPeak(tariff, TZ, nowOct)).toBe(true)
-      expect(computeIsPeak(tariff, TZ, nowMay)).toBe(true)
-    })
-  })
-
-  describe('period boundary precision', () => {
-    it('is not peak at exactly 15:00 (start of partial peak, exclusive lower)', () => {
-      // 15:00 marks the start of PARTIAL_PEAK; from=15:00 means >=15:00
-      const now = chicagoTs(2024, 7, 15, 15, 0)
-      expect(computeIsPeak(tariff, TZ, now)).toBe(true)
+    it('is peak at hour 2 (early morning, inside wrapped window)', () => {
+      expect(computeIsPeakFromWindow(22, 6, TZ, ts('2024-07-16T07:00:00Z'))).toBe(true)
     })
 
-    it('is not peak at exactly 21:00 (start of partial peak window 2)', () => {
-      const now = chicagoTs(2024, 7, 15, 21, 0)
-      expect(computeIsPeak(tariff, TZ, now)).toBe(true)
-    })
-
-    it('is off peak at exactly 14:59', () => {
-      const now = chicagoTs(2024, 7, 15, 14, 59)
-      expect(computeIsPeak(tariff, TZ, now)).toBe(false)
+    it('is not peak at hour 12 (midday, outside wrapped window)', () => {
+      expect(computeIsPeakFromWindow(22, 6, TZ, ts('2024-07-15T17:00:00Z'))).toBe(false)
     })
   })
 
-  describe('DST transitions', () => {
-    it('handles spring-forward day correctly (March 10 2024)', () => {
-      // Chicago springs forward at 2:00 AM → 3:00 AM
-      // 17:00 local should still be peak
-      const now = chicagoTs(2024, 3, 10, 17, 0)
-      expect(computeIsPeak(tariff, TZ, now)).toBe(true)
+  describe('edge cases', () => {
+    it('equal start and end means no peak period ever', () => {
+      expect(computeIsPeakFromWindow(12, 12, TZ, ts('2024-07-15T17:00:00Z'))).toBe(false)
     })
 
-    it('handles fall-back day correctly (November 3 2024)', () => {
-      // Chicago falls back at 2:00 AM → 1:00 AM
-      const now = chicagoTs(2024, 11, 3, 17, 0)
-      expect(computeIsPeak(tariff, TZ, now)).toBe(true)
+    it('works with UTC timezone', () => {
+      // 14:00 UTC, window 13–15 → peak
+      expect(computeIsPeakFromWindow(13, 15, 'UTC', ts('2024-07-15T14:00:00Z'))).toBe(true)
+    })
+
+    it('works with Phoenix timezone (no DST)', () => {
+      // Phoenix is UTC-7 always; 3 PM Phoenix = 22:00 UTC, window 14–16
+      expect(computeIsPeakFromWindow(14, 16, 'America/Phoenix', ts('2024-07-15T22:00:00Z'))).toBe(true)
+    })
+  })
+})
+
+// SRP schedule: Nov–Apr has two windows (5–9am, 5–9pm); May–Oct has one (2–8pm)
+const SRP_SCHEDULE = [
+  { startHour: 5,  endHour: 9,  monthStart: 11, monthEnd: 4 },  // winter morning
+  { startHour: 17, endHour: 21, monthStart: 11, monthEnd: 4 },  // winter evening
+  { startHour: 14, endHour: 20, monthStart: 5,  monthEnd: 10 }, // summer afternoon
+]
+
+describe('computeIsPeakFromSchedule', () => {
+  it('empty schedule is never peak', () => {
+    expect(computeIsPeakFromSchedule([], 'America/Phoenix', ts('2024-07-15T22:00:00Z'))).toBe(false)
+  })
+
+  describe('summer window (May–Oct, 2–8 PM Phoenix)', () => {
+    // 3 PM Phoenix = 22:00 UTC in July (UTC-7)
+    it('is peak at 3 PM in July', () => {
+      expect(computeIsPeakFromSchedule(SRP_SCHEDULE, 'America/Phoenix', ts('2024-07-15T22:00:00Z'))).toBe(true)
+    })
+    it('is not peak at 9 PM in July (after 8 PM cutoff)', () => {
+      // 9 PM Phoenix = 04:00 UTC next day
+      expect(computeIsPeakFromSchedule(SRP_SCHEDULE, 'America/Phoenix', ts('2024-07-16T04:00:00Z'))).toBe(false)
+    })
+    it('is not peak at noon in July', () => {
+      // noon Phoenix = 19:00 UTC
+      expect(computeIsPeakFromSchedule(SRP_SCHEDULE, 'America/Phoenix', ts('2024-07-15T19:00:00Z'))).toBe(false)
     })
   })
 
-  describe('returns false when tariff has no matching season', () => {
-    it('returns false when seasons object is empty', () => {
-      const empty: TariffRate = { seasons: {} }
-      const now = chicagoTs(2024, 7, 15, 17, 0)
-      expect(computeIsPeak(empty, TZ, now)).toBe(false)
+  describe('winter morning window (Nov–Apr, 5–9 AM Phoenix)', () => {
+    // 6 AM Phoenix Jan = 13:00 UTC (UTC-7)
+    it('is peak at 6 AM in January', () => {
+      expect(computeIsPeakFromSchedule(SRP_SCHEDULE, 'America/Phoenix', ts('2024-01-15T13:00:00Z'))).toBe(true)
+    })
+    it('is not peak at 10 AM in January (after morning cutoff)', () => {
+      expect(computeIsPeakFromSchedule(SRP_SCHEDULE, 'America/Phoenix', ts('2024-01-15T17:00:00Z'))).toBe(false)
+    })
+  })
+
+  describe('winter evening window (Nov–Apr, 5–9 PM Phoenix)', () => {
+    // 6 PM Phoenix Jan = 01:00 UTC next day (UTC-7)
+    it('is peak at 6 PM in January', () => {
+      expect(computeIsPeakFromSchedule(SRP_SCHEDULE, 'America/Phoenix', ts('2024-01-16T01:00:00Z'))).toBe(true)
+    })
+    it('is not peak at 10 PM in January (after evening cutoff)', () => {
+      // 10 PM Phoenix = 05:00 UTC next day
+      expect(computeIsPeakFromSchedule(SRP_SCHEDULE, 'America/Phoenix', ts('2024-01-16T05:00:00Z'))).toBe(false)
+    })
+  })
+
+  describe('month boundary (Nov–Apr wraps year)', () => {
+    // December should match winter windows
+    it('is peak at 6 AM in December', () => {
+      expect(computeIsPeakFromSchedule(SRP_SCHEDULE, 'America/Phoenix', ts('2024-12-15T13:00:00Z'))).toBe(true)
+    })
+    // May should match summer window, not winter
+    it('is peak at 3 PM in May (summer, not winter)', () => {
+      expect(computeIsPeakFromSchedule(SRP_SCHEDULE, 'America/Phoenix', ts('2024-05-15T22:00:00Z'))).toBe(true)
+    })
+    it('is not peak at 6 AM in May (winter window inactive)', () => {
+      expect(computeIsPeakFromSchedule(SRP_SCHEDULE, 'America/Phoenix', ts('2024-05-15T13:00:00Z'))).toBe(false)
     })
   })
 })

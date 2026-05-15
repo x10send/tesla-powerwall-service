@@ -2,20 +2,31 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { config } from './config.js'
 
+export interface PeakScheduleEntry {
+  startHour: number    // 0-23
+  endHour: number      // 0-23, exclusive upper bound
+  monthStart: number   // 1-12
+  monthEnd: number     // 1-12 (monthStart > monthEnd means wraps year, e.g. Nov–Apr)
+}
+
 export interface Settings {
-  siteId: number | null
+  gatewayIp: string | null
+  gatewayPassword: string | null
   siteName: string | null
-  socLow: number | null    // fire soc_below_threshold when SoC drops below this
-  socHigh: number | null   // fire soc_above_threshold when SoC rises above this
+  socLow: number | null     // fire soc_below_threshold when SoC drops below this
+  socHigh: number | null    // fire soc_above_threshold when SoC rises above this
+  peakSchedule: PeakScheduleEntry[]
 }
 
 const settingsPath = () => join(config.dataDir, 'config.json')
 
 const defaults: Settings = {
-  siteId: null,
+  gatewayIp: null,
+  gatewayPassword: null,
   siteName: null,
   socLow: null,
   socHigh: null,
+  peakSchedule: [],
 }
 
 function load(): Settings {

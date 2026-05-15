@@ -1,19 +1,43 @@
+import type { PowerwallUnit } from '../types.js'
+export type { PowerwallUnit }
+
 export type AuthState = 'setup' | 'polling' | 'error'
 
 export interface PowerwallState {
   authState: AuthState
-  siteId: number | null
   siteName: string | null
-  // Power values in watts; null until first successful poll
+  // Live power (watts)
+  soc: number | null
+  gridStatus: string | null       // 'Active' | 'Inactive' | 'Unknown'
   solarPower: number | null
-  batteryPower: number | null
-  gridPower: number | null
+  batteryPower: number | null     // positive = discharging
+  gridPower: number | null        // positive = importing
   homePower: number | null
-  soc: number | null               // State of charge 0–100
-  gridStatus: string | null        // 'Active' | 'Inactive'
   isPeakPeriod: boolean | null
+  // Electrical
+  gridVoltage: number | null      // volts
+  gridFrequency: number | null    // Hz
+  // Operation
+  operationMode: string | null    // 'autonomous' | 'backup' | 'self_consumption' | ...
+  backupReservePercent: number | null
+  // Lifetime energy (Wh)
+  solarExportedWh: number | null
+  gridImportedWh: number | null
+  gridExportedWh: number | null
+  batteryChargedWh: number | null
+  batteryDischargedWh: number | null
+  homeConsumedWh: number | null
+  // System info (refreshed hourly)
+  nominalCapacityWh: number | null
+  numPowerwalls: number | null
+  maxDischargePowerW: number | null
+  maxChargePowerW: number | null
+  utility: string | null
+  stateLocation: string | null
+  units: PowerwallUnit[] | null
+  // Status
   stale: boolean
-  lastUpdated: number | null       // Unix ms
+  lastUpdated: number | null
   lastError: string | null
 }
 
@@ -26,15 +50,31 @@ const MAX_EVENTS = 50
 
 let state: PowerwallState = {
   authState: 'setup',
-  siteId: null,
   siteName: null,
+  soc: null,
+  gridStatus: null,
   solarPower: null,
   batteryPower: null,
   gridPower: null,
   homePower: null,
-  soc: null,
-  gridStatus: null,
   isPeakPeriod: null,
+  gridVoltage: null,
+  gridFrequency: null,
+  operationMode: null,
+  backupReservePercent: null,
+  solarExportedWh: null,
+  gridImportedWh: null,
+  gridExportedWh: null,
+  batteryChargedWh: null,
+  batteryDischargedWh: null,
+  homeConsumedWh: null,
+  nominalCapacityWh: null,
+  numPowerwalls: null,
+  maxDischargePowerW: null,
+  maxChargePowerW: null,
+  utility: null,
+  stateLocation: null,
+  units: null,
   stale: false,
   lastUpdated: null,
   lastError: null,
@@ -42,9 +82,7 @@ let state: PowerwallState = {
 
 const events: TransitionEvent[] = []
 
-export function getState(): Readonly<PowerwallState> {
-  return state
-}
+export function getState(): Readonly<PowerwallState> { return state }
 
 export function setState(patch: Partial<PowerwallState>): void {
   state = { ...state, ...patch }
@@ -55,10 +93,6 @@ export function pushEvent(name: string): void {
   if (events.length > MAX_EVENTS) events.splice(MAX_EVENTS)
 }
 
-export function getEvents(): ReadonlyArray<TransitionEvent> {
-  return events
-}
+export function getEvents(): ReadonlyArray<TransitionEvent> { return events }
 
-export function clearEvents(): void {
-  events.splice(0)
-}
+export function clearEvents(): void { events.splice(0) }

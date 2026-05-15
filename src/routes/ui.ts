@@ -1,32 +1,36 @@
 import type { FastifyInstance } from 'fastify'
 import { lanOnly } from '../middleware/lanOnly.js'
 import { getState, getEvents } from '../state/store.js'
-import { loadTokens, saveTokens } from '../auth/tokens.js'
-import { exchangeCodeForTokens, buildAuthorizeUrl, extractCodeFromCallbackUrl } from '../auth/flow.js'
-import { getEnergySites, getSiteInfo } from '../tesla/client.js'
 import { setState } from '../state/store.js'
 import { readSettings, saveSettings } from '../settings.js'
+import type { PeakScheduleEntry } from '../settings.js'
+import { testConnection, clearSession, GatewayAuthError } from '../gateway/client.js'
+import { triggerPoll } from '../poller.js'
 import { renderSetup, renderDashboard, renderSettings } from '../ui/templates.js'
-import crypto from 'crypto'
-
-// Ephemeral in-memory state param for CSRF protection during OAuth flow
-let pendingOAuthState: string | null = null
 
 export async function uiRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', lanOnly)
 
+  app.addHook('onSend', async (_req, reply, payload) => {
+    const ct = reply.getHeader('content-type')
+    if (typeof ct === 'string' && ct.startsWith('text/html')) {
+      void reply.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; base-uri 'none'")
+      void reply.header('X-Content-Type-Options', 'nosniff')
+      void reply.header('X-Frame-Options', 'DENY')
+    }
+    return payload
+  })
+
   app.get('/ui', async (_req, reply) => {
-    const tokens = await loadTokens()
-    if (!tokens) {
-      const oauthState = crypto.randomBytes(16).toString('hex')
-      pendingOAuthState = oauthState
-      const authorizeUrl = buildAuthorizeUrl(oauthState)
-      await reply.type('text/html').send(renderSetup({ authorizeUrl }))
+    const settings = readSettings()
+    if (!settings.gatewayIp || !settings.gatewayPassword) {
+      await reply.type('text/html').send(renderSetup({}))
       return
     }
     const appState = getState()
-    const settings = readSettings()
-    await reply.type('text/html').send(renderDashboard({ appState, events: [...getEvents()], settings }))
+    await reply.type('text/html').send(
+      renderDashboard({ appState, events: [...getEvents()], settings }),
+    )
   })
 
   app.get('/ui/settings', async (_req, reply) => {
@@ -40,72 +44,88 @@ export async function uiRoutes(app: FastifyInstance): Promise<void> {
       const n = parseFloat(v ?? '')
       return isNaN(n) ? null : Math.min(100, Math.max(0, n))
     }
-    const socLow = parseThreshold(body['socLow'])
-    const socHigh = parseThreshold(body['socHigh'])
-    saveSettings({ socLow, socHigh })
-    await reply.redirect('/ui')
-  })
+    const clampHour = (n: number) => Math.min(23, Math.max(0, n))
+    const clampMonth = (n: number) => Math.min(12, Math.max(1, n))
 
-  // Receives the pasted callback URL after Tesla OAuth
-  app.post('/ui/auth/connect', async (req, reply) => {
-    const body = req.body as Record<string, string>
-    const callbackUrl = body['callbackUrl']?.trim()
-
-    if (!callbackUrl) {
-      await reply.type('text/html').send(renderSetup({
-        authorizeUrl: buildAuthorizeUrl(pendingOAuthState ?? ''),
-        error: 'Please paste the callback URL from your browser.',
-      }))
-      return
+    const peakSchedule: PeakScheduleEntry[] = []
+    for (let i = 0; i < 20; i++) {
+      const sh = parseInt(body[`w${i}_startHour`] ?? '', 10)
+      const eh = parseInt(body[`w${i}_endHour`] ?? '', 10)
+      const ms = parseInt(body[`w${i}_monthStart`] ?? '', 10)
+      const me = parseInt(body[`w${i}_monthEnd`] ?? '', 10)
+      if (!isNaN(sh) && !isNaN(eh) && !isNaN(ms) && !isNaN(me)) {
+        peakSchedule.push({ startHour: clampHour(sh), endHour: clampHour(eh), monthStart: clampMonth(ms), monthEnd: clampMonth(me) })
+      }
     }
 
-    const parsed = extractCodeFromCallbackUrl(callbackUrl)
-    if (!parsed || parsed.state !== pendingOAuthState) {
-      await reply.type('text/html').send(renderSetup({
-        authorizeUrl: buildAuthorizeUrl(pendingOAuthState ?? ''),
-        error: 'Invalid or expired callback URL. Please try again.',
-      }))
+    saveSettings({
+      socLow: parseThreshold(body['socLow']),
+      socHigh: parseThreshold(body['socHigh']),
+      peakSchedule,
+    })
+    await reply.redirect('/ui/settings?saved=1')
+  })
+
+  // Save gateway credentials and test connection
+  app.post('/ui/gateway/connect', async (req, reply) => {
+    const body = req.body as Record<string, string>
+    const gatewayIp = body['gatewayIp']?.trim()
+    const gatewayPassword = body['gatewayPassword']?.trim()
+
+    if (!gatewayIp || !gatewayPassword) {
+      await reply.type('text/html').send(
+        renderSetup({ error: 'Gateway IP and password are required.' }),
+      )
       return
     }
 
     try {
-      const tokens = await exchangeCodeForTokens(parsed.code)
-      await saveTokens(tokens)
-      pendingOAuthState = null
-
-      // Auto-discover energy site
-      const sites = await getEnergySites(tokens.accessToken)
-      if (sites.length === 1) {
-        const info = await getSiteInfo(sites[0]!.energy_site_id, tokens.accessToken)
-        saveSettings({ siteId: sites[0]!.energy_site_id, siteName: info.site_name })
-        setState({ authState: 'polling', siteId: sites[0]!.energy_site_id, siteName: info.site_name })
-      } else if (sites.length > 1) {
-        // Multiple sites — save list for picker (future enhancement; pick first for now)
-        const info = await getSiteInfo(sites[0]!.energy_site_id, tokens.accessToken)
-        saveSettings({ siteId: sites[0]!.energy_site_id, siteName: info.site_name })
-        setState({ authState: 'polling', siteId: sites[0]!.energy_site_id, siteName: info.site_name })
-      } else {
-        await reply.type('text/html').send(renderSetup({
-          authorizeUrl: buildAuthorizeUrl(pendingOAuthState ?? ''),
-          error: 'No Powerwall energy sites found on this Tesla account.',
-        }))
-        return
-      }
-
+      await testConnection(gatewayIp, gatewayPassword)
+      saveSettings({ gatewayIp, gatewayPassword })
+      setState({ authState: 'polling' })
+      triggerPoll(req.log)
       await reply.redirect('/ui')
     } catch (err) {
-      await reply.type('text/html').send(renderSetup({
-        authorizeUrl: buildAuthorizeUrl(pendingOAuthState ?? ''),
-        error: `Authentication failed: ${String(err)}`,
-      }))
+      const message = err instanceof GatewayAuthError
+        ? `Could not authenticate to gateway at ${gatewayIp}. Check the IP address and password.`
+        : `Connection failed: ${String(err)}`
+      await reply.type('text/html').send(renderSetup({ error: message }))
     }
   })
 
-  app.post('/ui/auth/disconnect', async (_req, reply) => {
-    const { clearTokens } = await import('../auth/tokens.js')
-    await clearTokens()
-    saveSettings({ siteId: null, siteName: null })
-    setState({ authState: 'setup', siteId: null, siteName: null })
+  // Clear gateway config and return to setup
+  app.post('/ui/gateway/disconnect', async (_req, reply) => {
+    clearSession()
+    saveSettings({ gatewayIp: null, gatewayPassword: null, siteName: null })
+    setState({
+      authState: 'setup',
+      siteName: null,
+      soc: null,
+      gridStatus: null,
+      solarPower: null,
+      batteryPower: null,
+      gridPower: null,
+      homePower: null,
+      isPeakPeriod: null,
+      gridVoltage: null,
+      gridFrequency: null,
+      operationMode: null,
+      backupReservePercent: null,
+      solarExportedWh: null,
+      gridImportedWh: null,
+      gridExportedWh: null,
+      batteryChargedWh: null,
+      batteryDischargedWh: null,
+      homeConsumedWh: null,
+      nominalCapacityWh: null,
+      numPowerwalls: null,
+      maxDischargePowerW: null,
+      maxChargePowerW: null,
+      utility: null,
+      stateLocation: null,
+      stale: false,
+      lastError: null,
+    })
     await reply.redirect('/ui')
   })
 }

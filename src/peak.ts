@@ -1,76 +1,47 @@
-import type { TariffRate, TariffSeason } from './tesla/types.js'
+import type { PeakScheduleEntry } from './settings.js'
 
-// Returns true if `now` falls within an ON_PEAK or PARTIAL_PEAK window in the tariff.
-// `timezone` should be an IANA tz string (e.g. "America/Chicago") matching the site.
-// `now` defaults to Date.now() but is injectable for deterministic testing.
-export function computeIsPeak(tariff: TariffRate, timezone: string, now: number = Date.now()): boolean {
-  const season = activeSeason(tariff, timezone, now)
-  if (!season) return false
-
-  const peakTiers = ['ON_PEAK', 'PARTIAL_PEAK']
-  for (const tier of peakTiers) {
-    const periods = season.tou_periods[tier]
-    if (periods?.some(p => periodCoversNow(p, timezone, now))) return true
-  }
-  return false
-}
-
-function activeSeason(tariff: TariffRate, timezone: string, now: number): TariffSeason | null {
-  const { month, day } = localDate(timezone, now)
-  for (const season of Object.values(tariff.seasons)) {
-    if (dateInRange(month, day, season.fromMonth, season.fromDay, season.toMonth, season.toDay)) {
-      return season
-    }
-  }
-  return null
-}
-
-function periodCoversNow(
-  period: { fromHour: number; fromMinute: number; toHour: number; toMinute: number },
+// Returns true if 'now' falls within any active schedule entry.
+// Month ranges that cross the year boundary (e.g. monthStart=11, monthEnd=4) are handled.
+export function computeIsPeakFromSchedule(
+  schedule: PeakScheduleEntry[],
   timezone: string,
-  now: number,
+  now: number = Date.now(),
 ): boolean {
-  const { hour, minute } = localDate(timezone, now)
-  const current = hour * 60 + minute
-  const from = period.fromHour * 60 + period.fromMinute
-  const to = period.toHour * 60 + period.toMinute
-
-  // Handle windows that wrap midnight (e.g. 23:00–01:00)
-  if (from <= to) {
-    return current >= from && current < to
-  }
-  return current >= from || current < to
+  if (schedule.length === 0) return false
+  const { hour, month } = localDateTime(timezone, now)
+  return schedule.some(e => isMonthInRange(month, e.monthStart, e.monthEnd) && isHourInRange(hour, e.startHour, e.endHour))
 }
 
-// Returns the month (1-12), day (1-31), hour (0-23), minute (0-59) in the given timezone.
-function localDate(timezone: string, now: number): { month: number; day: number; hour: number; minute: number } {
+// Retained for tests and potential single-window callers.
+export function computeIsPeakFromWindow(
+  startHour: number,
+  endHour: number,
+  timezone: string,
+  now: number = Date.now(),
+): boolean {
+  const { hour } = localDateTime(timezone, now)
+  return isHourInRange(hour, startHour, endHour)
+}
+
+function isHourInRange(hour: number, start: number, end: number): boolean {
+  if (start === end) return false
+  if (start < end) return hour >= start && hour < end
+  return hour >= start || hour < end  // wraps midnight
+}
+
+function isMonthInRange(month: number, start: number, end: number): boolean {
+  if (start <= end) return month >= start && month <= end
+  return month >= start || month <= end  // wraps year (e.g. Nov–Apr: 11→4)
+}
+
+function localDateTime(timezone: string, now: number): { hour: number; month: number } {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
-    month: 'numeric',
-    day: 'numeric',
     hour: 'numeric',
-    minute: 'numeric',
+    month: 'numeric',
     hour12: false,
   }).formatToParts(new Date(now))
-
-  const get = (type: string) => parseInt(parts.find(p => p.type === type)?.value ?? '0', 10)
-  return { month: get('month'), day: get('day'), hour: get('hour') % 24, minute: get('minute') }
-}
-
-// Checks if (month, day) falls within [fromMonth/fromDay, toMonth/toDay] inclusive.
-// Handles ranges that wrap across year-end (e.g. Nov 1 – Mar 31).
-function dateInRange(
-  month: number, day: number,
-  fromMonth: number, fromDay: number,
-  toMonth: number, toDay: number,
-): boolean {
-  const current = month * 100 + day
-  const from = fromMonth * 100 + fromDay
-  const to = toMonth * 100 + toDay
-
-  if (from <= to) {
-    return current >= from && current <= to
-  }
-  // Wraps year boundary
-  return current >= from || current <= to
+  const hour = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10) % 24
+  const month = parseInt(parts.find(p => p.type === 'month')?.value ?? '1', 10)
+  return { hour, month }
 }
