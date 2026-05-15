@@ -42,7 +42,7 @@ function gridHandler(onGrid: boolean) {
       if (err instanceof GatewayAuthError) {
         await reply.code(401).send({ error: err.message })
       } else {
-        await reply.code(500).send({ error: String(err) })
+        await reply.code(500).send({ error: 'Grid mode command failed' })
       }
     }
   }

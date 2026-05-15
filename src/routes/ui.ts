@@ -79,6 +79,14 @@ export async function uiRoutes(app: FastifyInstance): Promise<void> {
       return
     }
 
+    // Accept bare IPv4 or a simple hostname (letters, digits, dots, hyphens)
+    if (!/^[a-zA-Z0-9]([a-zA-Z0-9.\-]{0,252}[a-zA-Z0-9])?$/.test(gatewayIp)) {
+      await reply.type('text/html').send(
+        renderSetup({ error: 'Invalid gateway IP or hostname.' }),
+      )
+      return
+    }
+
     try {
       await testConnection(gatewayIp, gatewayPassword)
       saveSettings({ gatewayIp, gatewayPassword })

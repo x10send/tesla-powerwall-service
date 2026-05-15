@@ -92,7 +92,7 @@ describe('gateway error handling', () => {
     mockSetGatewayGridMode.mockRejectedValue(new Error('Connection refused'))
     const res = await app.inject({ method: 'POST', url: '/grid/on' })
     expect(res.statusCode).toBe(500)
-    expect(res.json().error).toMatch(/Connection refused/)
+    expect(res.json().error).toBe('Grid mode command failed')
   })
 
   it('same error mapping applies to /grid/off', async () => {

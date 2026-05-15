@@ -270,7 +270,7 @@ export function renderDashboard({
       <div class="row"><span class="row-label">Gateway</span><span>${esc(settings.gatewayIp ?? '—')}</span></div>
       <div class="row"><span class="row-label">Status</span><span>${esc(appState.authState)}</span></div>
       <div class="row"><span class="row-label">Last Poll</span><span>${appState.lastUpdated ? formatTime(appState.lastUpdated) : 'never'}</span></div>
-      <div class="row"><span class="row-label">SoC Thresholds</span><span>low ${settings.socLow ?? '—'} / high ${settings.socHigh ?? '—'}</span></div>
+      <div class="row"><span class="row-label">SoC Thresholds</span><span>low ${settings.socLow != null ? Number(settings.socLow) : '—'} / high ${settings.socHigh != null ? Number(settings.socHigh) : '—'}</span></div>
       <div class="row"><span class="row-label">Peak Schedule</span><span>${esc(scheduleDisplay)}</span></div>
     </div>`
 
@@ -353,12 +353,12 @@ export function renderSettings({ settings, saved }: { settings: Settings; saved?
         <div class="two-col" style="margin-bottom:0.875rem">
           <div class="form-group">
             <label class="form-label">Low threshold (%)</label>
-            <input type="number" name="socLow" min="0" max="100" value="${settings.socLow ?? ''}" placeholder="e.g. 20">
+            <input type="number" name="socLow" min="0" max="100" value="${settings.socLow != null ? Number(settings.socLow) : ''}" placeholder="e.g. 20">
             <p class="form-hint">Fires <code>soc_below_threshold</code></p>
           </div>
           <div class="form-group">
             <label class="form-label">High threshold (%)</label>
-            <input type="number" name="socHigh" min="0" max="100" value="${settings.socHigh ?? ''}" placeholder="e.g. 90">
+            <input type="number" name="socHigh" min="0" max="100" value="${settings.socHigh != null ? Number(settings.socHigh) : ''}" placeholder="e.g. 90">
             <p class="form-hint">Fires <code>soc_above_threshold</code></p>
           </div>
         </div>
