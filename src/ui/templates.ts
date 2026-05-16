@@ -257,10 +257,15 @@ export function renderDashboard({
   // ── Diagnostics card ──────────────────────────────────────────────────────────
 
   const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const formatDays = (days: number[] | undefined): string => {
+    if (!days || days.length === 0 || days.length === 7) return 'all days'
+    return days.map(d => DAYS_SHORT[d]).join('/')
+  }
   const scheduleDisplay = settings.peakSchedule.length === 0
     ? 'not configured'
     : settings.peakSchedule.map(e =>
-        `${hourLabel(e.startHour)}–${hourLabel(e.endHour)} (${MONTHS[e.monthStart]}–${MONTHS[e.monthEnd]})`
+        `${hourLabel(e.startHour)}–${hourLabel(e.endHour)} (${MONTHS[e.monthStart]}–${MONTHS[e.monthEnd]}, ${formatDays(e.days)})`
       ).join(', ')
 
   const diagnosticsCard = `
@@ -329,15 +334,29 @@ function unitRows(units: PowerwallUnit[]): string {
   }).join('')
 }
 
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
 function peakRow(i: number, e: PeakScheduleEntry): string {
   const inp = (name: string, val: number, ph: string) =>
     `<input type="number" name="w${i}_${name}" min="${name.includes('month') ? 1 : 0}" max="${name.includes('month') ? 12 : 23}" value="${val}" placeholder="${ph}" style="padding:.4rem;border:1px solid #ddd;border-radius:4px;font-size:.95rem">`
-  return `<div class="peak-row" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:0.5rem;margin-bottom:0.5rem;align-items:center">
-    ${inp('startHour',  e.startHour,  'e.g. 17')}
-    ${inp('endHour',    e.endHour,    'e.g. 21')}
-    ${inp('monthStart', e.monthStart, 'e.g. 5')}
-    ${inp('monthEnd',   e.monthEnd,   'e.g. 10')}
-    <button type="button" class="secondary" onclick="removePeakRow(this)" style="white-space:nowrap">Remove</button>
+  // absent or empty days means all days active (backwards compat)
+  const activeDays = (!e.days || e.days.length === 0) ? [0, 1, 2, 3, 4, 5, 6] : e.days
+  const dayBoxes = DAY_LABELS.map((name, d) => {
+    const checked = activeDays.includes(d) ? ' checked' : ''
+    return `<label style="display:flex;align-items:center;gap:0.2rem;cursor:pointer;font-size:0.8rem"><input type="checkbox" name="w${i}_day_${d}" value="1"${checked}> ${name}</label>`
+  }).join('')
+  return `<div class="peak-row" style="border:1px solid #e5e7eb;border-radius:6px;padding:0.6rem;margin-bottom:0.5rem">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:0.5rem;margin-bottom:0.4rem;align-items:center">
+      ${inp('startHour',  e.startHour,  'e.g. 17')}
+      ${inp('endHour',    e.endHour,    'e.g. 21')}
+      ${inp('monthStart', e.monthStart, 'e.g. 5')}
+      ${inp('monthEnd',   e.monthEnd,   'e.g. 10')}
+      <button type="button" class="secondary" onclick="removePeakRow(this)" style="white-space:nowrap">Remove</button>
+    </div>
+    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center">
+      <span style="font-size:0.72rem;color:#6b7280;text-transform:uppercase;letter-spacing:.04em">Days:</span>
+      ${dayBoxes}
+    </div>
   </div>`
 }
 
@@ -380,13 +399,26 @@ export function renderSettings({ settings, saved }: { settings: Settings; saved?
         </div>
         <button type="button" class="secondary" onclick="addPeakRow()" style="margin-top:0.4rem;font-size:0.85rem">+ Add window</button>
         <script>
+          // New rows default to weekdays (Mon–Fri)
+          var DEFAULT_DAYS = [false, true, true, true, true, true, false];
+          var DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
           function peakRowHtml(i) {
-            return '<div class="peak-row" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:0.5rem;margin-bottom:0.5rem;align-items:center">' +
+            var dayBoxes = DAY_NAMES.map(function(name, d) {
+              return '<label style="display:flex;align-items:center;gap:0.2rem;cursor:pointer;font-size:0.8rem">' +
+                '<input type="checkbox" name="w'+i+'_day_'+d+'" value="1"' + (DEFAULT_DAYS[d] ? ' checked' : '') + '> ' + name + '</label>';
+            }).join('');
+            return '<div class="peak-row" style="border:1px solid #e5e7eb;border-radius:6px;padding:0.6rem;margin-bottom:0.5rem">' +
+              '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:0.5rem;margin-bottom:0.4rem;align-items:center">' +
               '<input type="number" name="w'+i+'_startHour" min="0" max="23" placeholder="e.g. 17" style="padding:.4rem;border:1px solid #ddd;border-radius:4px;font-size:.95rem">' +
               '<input type="number" name="w'+i+'_endHour"   min="0" max="23" placeholder="e.g. 21" style="padding:.4rem;border:1px solid #ddd;border-radius:4px;font-size:.95rem">' +
               '<input type="number" name="w'+i+'_monthStart" min="1" max="12" placeholder="e.g. 5"  style="padding:.4rem;border:1px solid #ddd;border-radius:4px;font-size:.95rem">' +
               '<input type="number" name="w'+i+'_monthEnd"   min="1" max="12" placeholder="e.g. 10" style="padding:.4rem;border:1px solid #ddd;border-radius:4px;font-size:.95rem">' +
               '<button type="button" class="secondary" onclick="removePeakRow(this)" style="white-space:nowrap">Remove</button>' +
+              '</div>' +
+              '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center">' +
+              '<span style="font-size:0.72rem;color:#6b7280;text-transform:uppercase;letter-spacing:.04em">Days:</span>' +
+              dayBoxes +
+              '</div>' +
               '</div>';
           }
           function addPeakRow() {

@@ -54,7 +54,13 @@ export async function uiRoutes(app: FastifyInstance): Promise<void> {
       const ms = parseInt(body[`w${i}_monthStart`] ?? '', 10)
       const me = parseInt(body[`w${i}_monthEnd`] ?? '', 10)
       if (!isNaN(sh) && !isNaN(eh) && !isNaN(ms) && !isNaN(me)) {
-        peakSchedule.push({ startHour: clampHour(sh), endHour: clampHour(eh), monthStart: clampMonth(ms), monthEnd: clampMonth(me) })
+        const days: number[] = []
+        for (let d = 0; d < 7; d++) {
+          if (body[`w${i}_day_${d}`]) days.push(d)
+        }
+        // [] means all days (backwards compatible with pre-days entries)
+        const normalizedDays = days.length === 7 ? [] : days
+        peakSchedule.push({ startHour: clampHour(sh), endHour: clampHour(eh), monthStart: clampMonth(ms), monthEnd: clampMonth(me), days: normalizedDays })
       }
     }
 

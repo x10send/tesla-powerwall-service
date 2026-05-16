@@ -7,6 +7,7 @@ export interface PeakScheduleEntry {
   endHour: number      // 0-23, exclusive upper bound
   monthStart: number   // 1-12
   monthEnd: number     // 1-12 (monthStart > monthEnd means wraps year, e.g. Nov–Apr)
+  days?: number[]      // 0=Sun … 6=Sat; absent or empty means all days (backwards compatible)
 }
 
 export interface Settings {

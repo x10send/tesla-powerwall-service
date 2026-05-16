@@ -135,3 +135,49 @@ describe('computeIsPeakFromSchedule', () => {
     })
   })
 })
+
+// 2024-07-15 is a Monday (UTC); in Phoenix (UTC-7) it's still Monday at 3 PM (22:00 UTC)
+// 2024-07-20 is a Saturday (UTC); in Phoenix (UTC-7) it's still Saturday at 3 PM (22:00 UTC)
+describe('days-of-week filtering', () => {
+  const WEEKDAY_SCHEDULE = [
+    { startHour: 14, endHour: 20, monthStart: 5, monthEnd: 10, days: [1, 2, 3, 4, 5] }, // Mon–Fri only
+  ]
+
+  it('is peak on a weekday within the window', () => {
+    // 2024-07-15 Monday 3 PM Phoenix = 22:00 UTC
+    expect(computeIsPeakFromSchedule(WEEKDAY_SCHEDULE, 'America/Phoenix', ts('2024-07-15T22:00:00Z'))).toBe(true)
+  })
+
+  it('is not peak on a Saturday within the same window', () => {
+    // 2024-07-20 Saturday 3 PM Phoenix = 22:00 UTC
+    expect(computeIsPeakFromSchedule(WEEKDAY_SCHEDULE, 'America/Phoenix', ts('2024-07-20T22:00:00Z'))).toBe(false)
+  })
+
+  it('is not peak on a Sunday within the same window', () => {
+    // 2024-07-21 Sunday 3 PM Phoenix = 22:00 UTC
+    expect(computeIsPeakFromSchedule(WEEKDAY_SCHEDULE, 'America/Phoenix', ts('2024-07-21T22:00:00Z'))).toBe(false)
+  })
+
+  it('absent days field means all days active (backwards compat)', () => {
+    const allDays = [{ startHour: 14, endHour: 20, monthStart: 5, monthEnd: 10 }]
+    // Saturday 3 PM Phoenix — should be peak because no days restriction
+    expect(computeIsPeakFromSchedule(allDays, 'America/Phoenix', ts('2024-07-20T22:00:00Z'))).toBe(true)
+  })
+
+  it('empty days array means all days active (backwards compat)', () => {
+    const allDays = [{ startHour: 14, endHour: 20, monthStart: 5, monthEnd: 10, days: [] }]
+    expect(computeIsPeakFromSchedule(allDays, 'America/Phoenix', ts('2024-07-20T22:00:00Z'))).toBe(true)
+  })
+
+  it('weekend-only schedule is not peak on a weekday', () => {
+    const weekendOnly = [{ startHour: 14, endHour: 20, monthStart: 5, monthEnd: 10, days: [0, 6] }]
+    // Monday 3 PM Phoenix
+    expect(computeIsPeakFromSchedule(weekendOnly, 'America/Phoenix', ts('2024-07-15T22:00:00Z'))).toBe(false)
+  })
+
+  it('weekend-only schedule is peak on a Saturday', () => {
+    const weekendOnly = [{ startHour: 14, endHour: 20, monthStart: 5, monthEnd: 10, days: [0, 6] }]
+    // Saturday 3 PM Phoenix
+    expect(computeIsPeakFromSchedule(weekendOnly, 'America/Phoenix', ts('2024-07-20T22:00:00Z'))).toBe(true)
+  })
+})
