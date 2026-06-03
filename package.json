@@ -2,6 +2,7 @@
   "name": "powerwall-bridge",
   "version": "0.4.0",
   "description": "Bridge service connecting Tesla Powerwall gateway to REST API, web UI, and MCP",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",

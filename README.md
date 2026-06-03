@@ -1,5 +1,7 @@
 # Tesla Powerwall Service
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A self-hosted bridge service that connects directly to your Powerwall local gateway — no Tesla cloud account or API credentials required. Exposes a REST API, a web UI, and an MCP server for AI assistant integration.
 
 ## Architecture
@@ -160,6 +162,14 @@ ghcr.io/x10send/powerwall-bridge:0.4
 ghcr.io/x10send/powerwall-bridge:0
 ghcr.io/x10send/powerwall-bridge:latest
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). All contributions are welcome — please open an issue before starting large changes.
+
+## License
+
+[MIT](LICENSE)
 
 ## Hubitat Integration
 
