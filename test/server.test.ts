@@ -263,7 +263,7 @@ describe('POST /ui/gateway/connect', () => {
     })
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toMatch(/text\/html/)
-    expect(res.body).toContain('error-box')
+    expect(res.body).toContain('alert-danger')
   })
 
   it('saves settings and redirects on successful connection', async () => {
