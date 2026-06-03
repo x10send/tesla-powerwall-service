@@ -1,7 +1,7 @@
 {
   "name": "powerwall-bridge",
   "version": "0.4.0",
-  "description": "Bridge service between local Powerwall gateway and Hubitat",
+  "description": "Bridge service connecting Tesla Powerwall gateway to REST API, web UI, and MCP",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
